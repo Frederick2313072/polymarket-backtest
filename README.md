@@ -248,7 +248,7 @@ pytest
 
 ## License
 
-MIT © [Your Name](https://github.com/yourname)
+MIT © [Frederick](https://github.com/Frederick2313072)
 
 ---
 
