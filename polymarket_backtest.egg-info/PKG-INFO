@@ -1,0 +1,216 @@
+Metadata-Version: 2.4
+Name: polymarket-backtest
+Version: 0.1.0
+Summary: Polymarket API wrapper and strategy backtesting metrics toolkit
+Author-email: Your Name <you@example.com>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/yourname/polymarket-backtest
+Project-URL: Repository, https://github.com/yourname/polymarket-backtest
+Project-URL: Issues, https://github.com/yourname/polymarket-backtest/issues
+Keywords: polymarket,prediction-market,backtest,trading,quantitative
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Financial and Insurance Industry
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Office/Business :: Financial
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: requests>=2.28
+Requires-Dist: numpy>=1.24
+Requires-Dist: pandas>=2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21; extra == "dev"
+
+# polymarket-backtest
+
+Polymarket API 封装与策略回测评估工具包。
+
+## 功能
+
+- **API 封装**：Polymarket Gamma API（合约信息）、CLOB API（赔率历史时间序列）
+- **内置数据集**：BTC 15 分钟市场盘口快照 + Flash Crash / Hedge Arb 策略回测记录
+- **回测指标**：Sharpe Ratio、最大回撤、胜率、盈亏比、卡玛比率
+
+## 安装
+
+```bash
+pip install -e /path/to/polymarket_backtest
+# 或
+cd /path/to/polymarket_backtest && pip install -e .
+```
+
+## 快速开始
+
+### 1. 查询合约信息
+
+```python
+from polymarket_backtest.api import GammaClient
+
+gamma = GammaClient()
+
+# 获取当前活跃的 BTC 15 分钟市场
+market = gamma.get_market_info("BTC")
+print(market.slug)          # "btc-updown-15m-1775035200"
+print(market.up_price)      # 0.52
+print(market.down_price)    # 0.48
+print(market.up_token_id)   # "229931..."
+
+# 列出最近 5 个市场
+markets = gamma.list_recent_markets("ETH", n=5)
+for m in markets:
+    print(m.slug, m.end_date)
+```
+
+### 2. 拉取赔率历史
+
+```python
+from polymarket_backtest.api import GammaClient, ClobClient
+
+gamma = GammaClient()
+clob = ClobClient()
+
+market = gamma.get_market_info("BTC")
+
+# 拉取最近 1 天数据（每小时 1 个点）
+history = clob.get_price_history(
+    market.up_token_id,
+    interval="1d",
+    fidelity=60,
+)
+print(f"获取到 {len(history)} 个价格点")
+
+for point in history.points[:3]:
+    print(point.timestamp, point.price)
+
+# 直接返回 DataFrame
+df = clob.get_price_history_df(market.up_token_id, interval="1w", fidelity=60)
+print(df.head())
+#    timestamp  price                   datetime
+# 0  1697875200  0.520  2023-10-21 08:00:00+00:00
+```
+
+### 3. 加载内置数据集
+
+```python
+from polymarket_backtest.data import list_datasets, load_orderbook, load_trades, load_summary
+
+# 查看可用数据集
+for ds in list_datasets():
+    print(f"  {ds['name']}: {ds['description']}")
+
+# 加载 BTC 盘口快照（~13750 行）
+ob = load_orderbook("BTC")
+print(ob.columns.tolist())
+# ['recorded_at_ts', 'market_slug', 'coin', 'up_bid', 'up_ask', ...]
+
+# 加载 Flash Crash 策略交易记录
+trades = load_trades("flash_crash")
+print(trades[["coin", "side", "gross_pnl", "exit_reason"]].head())
+
+# 加载 Hedge Arb 策略交易记录
+hedge_trades = load_trades("hedge_arb")
+```
+
+### 4. 计算回测指标
+
+```python
+from polymarket_backtest.backtest import summary, sharpe_ratio, max_drawdown, win_rate
+from polymarket_backtest.data import load_trades
+
+# 加载回测数据
+trades = load_trades("flash_crash")
+pnl = trades["gross_pnl"].dropna().tolist()
+
+# 综合摘要
+result = summary(pnl)
+print(result)
+# {
+#   'total_trades': 22,
+#   'net_pnl': 47.92,
+#   'avg_pnl': 2.18,
+#   'std_pnl': 5.67,
+#   'win_rate': 0.143,
+#   'profit_factor': 1.08,
+#   'sharpe_ratio': 0.384,
+#   'max_drawdown': 18.5,
+#   'max_drawdown_pct': 22.3,
+#   'calmar_ratio': 2.59
+# }
+
+# 单独计算各指标
+print("Sharpe Ratio:", sharpe_ratio(pnl))
+print("年化 Sharpe (15m 市场):", sharpe_ratio(pnl, periods_per_year=35040))
+
+dd = max_drawdown(pnl)
+print(f"最大回撤: {dd['max_drawdown']:.2f} USDC ({dd['max_drawdown_pct']:.1f}%)")
+
+print("胜率:", win_rate(pnl))
+
+# 直接从 DataFrame 计算
+from polymarket_backtest.backtest import summary_from_df
+result2 = summary_from_df(trades, pnl_col="gross_pnl")
+```
+
+## API 参考
+
+### `GammaClient`
+
+| 方法 | 说明 |
+|------|------|
+| `get_market_info(coin)` | 获取当前活跃的 15 分钟市场信息 |
+| `get_market_by_slug(slug)` | 通过 slug 精确查询 |
+| `list_recent_markets(coin, n=10)` | 列出最近 n 个市场 |
+
+### `ClobClient`
+
+| 方法 | 说明 |
+|------|------|
+| `get_price_history(token_id, interval, fidelity, ...)` | 拉取赔率历史，返回 `OddsHistory` |
+| `get_price_history_df(token_id, ...)` | 同上，返回 `pd.DataFrame` |
+
+**interval 参数**：`"1m"` / `"1h"` / `"6h"` / `"1d"` / `"1w"` / `"max"`
+
+### 内置数据集
+
+| 名称 | 描述 |
+|------|------|
+| `btc_orderbook` | BTC 15 分钟盘口快照，~13750 行 |
+| `flash_crash_trades` | Flash Crash 策略逐笔交易 |
+| `flash_crash_summary` | Flash Crash 策略汇总统计 |
+| `hedge_arb_trades` | Hedge Arbitrage 策略逐笔交易 |
+
+### 回测指标
+
+| 函数 | 说明 |
+|------|------|
+| `sharpe_ratio(pnl, periods_per_year=None)` | 夏普比率，可选年化 |
+| `max_drawdown(pnl)` | 最大回撤（金额 + 百分比） |
+| `win_rate(pnl)` | 胜率 [0, 1] |
+| `profit_factor(pnl)` | 盈亏比 |
+| `calmar_ratio(pnl)` | 卡玛比率 |
+| `summary(pnl, periods_per_year=None)` | 综合统计摘要 |
+| `summary_from_df(df, pnl_col="net_pnl")` | 直接从 DataFrame 计算 |
+
+## 数据说明
+
+盘口数据字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `recorded_at_ts` | UNIX 时间戳（秒） |
+| `up_bid / up_ask / up_mid` | UP 方向的买/卖/中间价 |
+| `down_bid / down_ask / down_mid` | DOWN 方向的买/卖/中间价 |
+| `remaining_seconds` | 距市场结束的秒数 |
+| `elapsed_seconds` | 市场已进行的秒数 |
+
+## 依赖
+
+- Python >= 3.10
+- `requests` >= 2.28
+- `numpy` >= 1.24（可选，如未安装则用纯标准库计算）
+- `pandas` >= 2.0

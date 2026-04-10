@@ -1,0 +1,3 @@
+group,markets,signals,fillable_signals,trades,resolved,unresolved,take_profit,stop_loss,force_close,gross_pnl,avg_pnl,win_rate,avg_hold_s
+ALL,66,88,22,22,21,1,3,18,0,47.923134,2.282054,0.142857,6.583571
+BTC,8,88,22,22,21,1,3,18,0,47.923134,2.282054,0.142857,6.583571

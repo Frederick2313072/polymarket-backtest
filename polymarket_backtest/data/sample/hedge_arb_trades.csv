@@ -1,0 +1,5 @@
+coin,market_slug,source_files,trigger_ts,trigger_elapsed_seconds,trigger_remaining_seconds,dump_side,leg1_side,leg2_side,leg1_quote,leg2_quote,shares,combined_quote,status,exit_reason,settlement_side,leg1_filled,leg2_filled,leg1_entry,leg2_entry,hold_side,close_price,gross_pnl,net_pnl,total_fees
+BTC,btc-updown-15m-1775028600,btc_hedge_orderbook.csv,1775028682.016,83.0,817.0,down,down,up,0.412,0.578,10.1,0.99,resolved,both_done_settlement,,1,1,0.412,0.578,down,0.0,0.101,0.101,0.0
+BTC,btc-updown-15m-1775029500,btc_hedge_orderbook.csv,1775029534.533,35.0,865.0,up,up,down,0.422,0.568,10.1,0.99,resolved,floor_stop,,1,0,0.422,0.0,up,0.01,-4.1612,-4.1612,0.0
+BTC,btc-updown-15m-1775030400,btc_hedge_orderbook.csv,1775030441.216,42.0,858.0,down,down,up,0.392,0.598,10.1,0.99,resolved,both_done_settlement,,1,1,0.392,0.598,down,0.0,0.101,0.101,0.0
+BTC,btc-updown-15m-1775031300,btc_hedge_orderbook.csv,1775031386.477,87.0,813.0,up,up,down,0.432,0.558,10.1,0.99,resolved,both_done_settlement,,1,1,0.432,0.558,up,0.0,0.101,0.101,0.0
