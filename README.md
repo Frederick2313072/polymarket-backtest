@@ -10,6 +10,7 @@
 - 📡 **Fetch live & historical odds** from Polymarket's CLOB and Gamma APIs — no auth required
 - 📦 **Built-in datasets** — real BTC/ETH 15-minute market orderbook snapshots ready to use
 - 📊 **Backtest metrics** — Sharpe ratio, max drawdown, win rate, profit factor, Calmar ratio
+- 🧪 **Statistical computing** — Bootstrap confidence intervals, hypothesis testing (t / binomial / Jarque-Bera), Monte Carlo path simulation, Kelly criterion
 
 ```python
 from polymarket_backtest.api import GammaClient, ClobClient
@@ -79,6 +80,25 @@ All metrics work on a plain Python `list[float]` of per-trade PnL:
 | `calmar_ratio(pnl)` | Net PnL / max drawdown |
 | `summary(pnl)` | All of the above in one dict |
 | `summary_from_df(df, pnl_col)` | Same, but takes a DataFrame column |
+
+### 🧪 Statistical Computing
+
+Tools to quantify the *uncertainty* of your backtest results — because point estimates lie, especially with small samples (Polymarket strategies often produce <50 trades per study).
+
+| Function | Description |
+|----------|-------------|
+| `bootstrap_sharpe_ci(pnl, n_bootstrap=1000, seed=None)` | Bootstrap 95% CI for Sharpe ratio (percentile method) |
+| `bootstrap_win_rate_ci(pnl, ...)` | Bootstrap CI for win rate |
+| `bootstrap_mean_ci(pnl, ...)` | Bootstrap CI for average PnL (no normality assumption) |
+| `bootstrap_ci(pnl, stat_fn, ...)` | Generic Bootstrap CI for any statistic |
+| `ttest_mean_zero(pnl, alternative="greater")` | One-sample t-test: is mean PnL significantly > 0? |
+| `binomial_test_win_rate(pnl, p0=0.5)` | Exact binomial test: win rate vs. coin-flip baseline |
+| `jarque_bera_test(pnl)` | Normality test (skewness + excess kurtosis) |
+| `monte_carlo_paths(pnl, n_paths=1000, n_periods=100, seed=None)` | Simulate future equity curves by resampling history |
+| `monte_carlo_summary(paths)` | VaR / CVaR / drawdown distribution from simulated paths |
+| `kelly_fraction_from_pnl(pnl)` | Optimal bet size from estimated win rate & avg win/loss |
+
+> `scipy` is an optional dependency — if installed, exact `scipy.stats` distributions are used; otherwise the module falls back to pure-numeric implementations (Lentz continued fractions for the t-CDF, closed-form chi-square CDF, direct PMF summation for the binomial test).
 
 ---
 
@@ -193,6 +213,90 @@ print(f"Max drawdown: ${dd['max_drawdown']:.2f} (peak at trade #{dd['peak_idx']}
 from polymarket_backtest.backtest import summary_from_df
 print(summary_from_df(trades, pnl_col="gross_pnl"))
 ```
+
+### Quantify uncertainty (Bootstrap + hypothesis tests)
+
+Point estimates like "Sharpe = 0.14" are meaningless without a confidence interval. With only 21 trades, the *true* Sharpe could easily be -1 or +0.5:
+
+```python
+from polymarket_backtest.stats import (
+    bootstrap_sharpe_ci,
+    bootstrap_win_rate_ci,
+    ttest_mean_zero,
+    binomial_test_win_rate,
+    jarque_bera_test,
+)
+from polymarket_backtest.data import load_trades
+
+pnl = load_trades("flash_crash")["gross_pnl"].dropna().tolist()
+
+# 95% bootstrap CI for the Sharpe ratio
+print(bootstrap_sharpe_ci(pnl, n_bootstrap=2000, seed=42))
+# {'point_estimate': 0.145, 'ci_lower': -1.36, 'ci_upper': 0.38, ...}
+# CI straddles 0 → Sharpe is NOT statistically distinguishable from zero.
+
+# Is the average PnL significantly greater than 0?
+print(ttest_mean_zero(pnl, alternative="greater"))
+# {'t_stat': 0.67, 'p_value': 0.26, 'significant_at_5pct': False}
+
+# Is the win rate better than a coin flip?
+print(binomial_test_win_rate(pnl, p0=0.5, alternative="greater"))
+# {'wins': 3, 'n_trades': 21, 'p_value': 0.9999, 'significant_at_5pct': False}
+
+# Are returns normally distributed? (Almost never for prediction markets.)
+print(jarque_bera_test(pnl))
+# {'jb_stat': 261.4, 'skewness': 4.10, 'excess_kurtosis': 15.2, 'is_normal_at_5pct': False}
+```
+
+### Monte Carlo equity-curve simulation
+
+Resample historical PnL to estimate the distribution of future outcomes — Value-at-Risk, expected drawdown, probability of profit:
+
+```python
+from polymarket_backtest.stats import monte_carlo_paths, monte_carlo_summary
+
+# Simulate 2000 possible equity curves over the next 50 trades
+paths = monte_carlo_paths(pnl, n_paths=2000, n_periods=50, seed=0)
+print(paths.shape)        # (2000, 50)
+
+print(monte_carlo_summary(paths))
+# {
+#   'final_mean'        : 114.26,   # average ending PnL
+#   'final_median'      :  96.44,
+#   'final_ci_lower'    : -65.05,   # 2.5% percentile of final PnL
+#   'final_ci_upper'    : 367.99,   # 97.5% percentile
+#   'var_5pct'          : -53.51,   # 5% VaR — losses worse than this happen 5% of the time
+#   'cvar_5pct'         : -66.79,   # expected loss in the worst 5% scenarios
+#   'prob_profit'       : 0.889,    # 88.9% of simulated paths end positive
+#   'max_drawdown_mean' :  37.43,
+#   'max_drawdown_p95'  :  65.88,   # 95% of paths see drawdown ≤ $66
+# }
+```
+
+### Kelly criterion: how much to bet
+
+Given the estimated edge, the Kelly criterion gives the bet size that maximizes long-run log-wealth:
+
+```python
+from polymarket_backtest.stats import kelly_fraction, kelly_fraction_from_pnl
+
+# Auto-estimate from the trade log
+print(kelly_fraction_from_pnl(pnl))
+# {
+#   'kelly_fraction' : 0.086,    # full Kelly: bet 8.6% of capital
+#   'half_kelly'     : 0.043,    # safer in practice (parameter uncertainty)
+#   'quarter_kelly'  : 0.021,
+#   'win_rate'       : 0.143,
+#   'avg_win'        : 26.54,
+#   'avg_loss'       :  1.76,
+#   'edge'           :  2.28,    # expected PnL per unit capital
+# }
+
+# Or compute directly from known parameters
+print(kelly_fraction(win_rate=0.6, avg_win=2.0, avg_loss=1.0))   # 0.40
+```
+
+> Warning: Kelly is very sensitive to estimation error. With only ~20 trades, always pair `kelly_fraction_from_pnl()` with `bootstrap_ci()` to see how wide the plausible range really is — and consider half- or quarter-Kelly in practice.
 
 ---
 

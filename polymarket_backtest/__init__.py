@@ -30,6 +30,24 @@ Polymarket API 封装与策略回测评估工具包。
     result = summary(pnl)
     print(result)
     # {'net_pnl': 47.92, 'win_rate': 0.143, 'sharpe_ratio': 0.85, 'max_drawdown': 12.5, ...}
+
+    # 5. 统计推断（Bootstrap / 假设检验 / Monte Carlo / Kelly）
+    from polymarket_backtest.stats import (
+        bootstrap_sharpe_ci,
+        ttest_mean_zero,
+        monte_carlo_paths,
+        monte_carlo_summary,
+        kelly_fraction_from_pnl,
+    )
+
+    ci = bootstrap_sharpe_ci(pnl, n_bootstrap=2000, seed=42)
+    print(ci)        # Sharpe 比率的 95% 置信区间
+    print(ttest_mean_zero(pnl, alternative="greater"))
+    paths = monte_carlo_paths(pnl, n_paths=1000, n_periods=100, seed=0)
+    print(monte_carlo_summary(paths))
+    print(kelly_fraction_from_pnl(pnl))
 """
+
+from . import stats  # noqa: F401  顶层导出，便于 `import polymarket_backtest as pmb; pmb.stats`
 
 __version__ = "0.1.0"
